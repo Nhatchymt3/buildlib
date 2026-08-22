@@ -73,72 +73,41 @@ static id modifyDict(id obj) {
 // Patches raw NSData before NSJSONSerialization runs, catching the case where
 // the app uses a custom JSON deserialiser that bypasses our NSJSONSerialization hook.
 
+// Shared response patcher — wraps any completion handler to run modifyDict
+// on the raw JSON. Safe: modifyDict is a no-op if quota keys are absent.
+static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NSError *),
+                         NSData *data, NSURLResponse *response, NSError *error) {
+    NSData *patched = data;
+    if (data) {
+        @try {
+            id json = [NSJSONSerialization JSONObjectWithData:data
+                                                     options:NSJSONReadingMutableContainers
+                                                       error:nil];
+            if (json) {
+                id fixed = modifyDict(json);
+                NSData *nd = [NSJSONSerialization dataWithJSONObject:fixed options:0 error:nil];
+                if (nd) patched = nd;
+            }
+        } @catch (NSException *e) {}
+    }
+    completionHandler(patched, response, error);
+}
+
 %hook NSURLSession
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request
                             completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     if (!completionHandler) return %orig;
-    NSString *urlStr = request.URL.absoluteString;
-    BOOL needsPatch = ([urlStr containsString:@"apple/vip-detail"] ||
-                       [urlStr containsString:@"apple/check-subscription-status"] ||
-                       [urlStr containsString:@"apple/validate-receipt"] ||
-                       [urlStr containsString:@"vip-detail"] ||
-                       [urlStr containsString:@"vip_detail"] ||
-                       [urlStr containsString:@"user/info"] ||
-                       [urlStr containsString:@"ai_compose"]);
-    if (!needsPatch) return %orig(request, completionHandler);
-
+    // Patch ALL JSON responses — obfuscated endpoints (/hi8, /km4 etc) also carry quota data
     void (^newHandler)(NSData *, NSURLResponse *, NSError *) =
-        ^(NSData *data, NSURLResponse *response, NSError *error) {
-            NSData *patched = data;
-            if (data) {
-                @try {
-                    id json = [NSJSONSerialization JSONObjectWithData:data
-                                                             options:NSJSONReadingMutableContainers
-                                                               error:nil];
-                    if (json) {
-                        id fixed = modifyDict(json);
-                        NSData *newData = [NSJSONSerialization dataWithJSONObject:fixed
-                                                                          options:0
-                                                                            error:nil];
-                        if (newData) patched = newData;
-                    }
-                } @catch (NSException *e) {}
-            }
-            completionHandler(patched, response, error);
-        };
+        ^(NSData *d, NSURLResponse *r, NSError *e) { patchHandler(completionHandler, d, r, e); };
     return %orig(request, newHandler);
 }
 
-// Swift URLSession.shared.dataTask(with: URL) resolves to this variant
 - (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url
                         completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     if (!completionHandler) return %orig;
-    NSString *urlStr = url.absoluteString;
-    BOOL needsPatch = ([urlStr containsString:@"vip-detail"] ||
-                       [urlStr containsString:@"vip_detail"] ||
-                       [urlStr containsString:@"ai_compose"] ||
-                       [urlStr containsString:@"user/info"]);
-    if (!needsPatch) return %orig(url, completionHandler);
-
     void (^newHandler)(NSData *, NSURLResponse *, NSError *) =
-        ^(NSData *data, NSURLResponse *response, NSError *error) {
-            NSData *patched = data;
-            if (data) {
-                @try {
-                    id json = [NSJSONSerialization JSONObjectWithData:data
-                                                             options:NSJSONReadingMutableContainers
-                                                               error:nil];
-                    if (json) {
-                        id fixed = modifyDict(json);
-                        NSData *newData = [NSJSONSerialization dataWithJSONObject:fixed
-                                                                          options:0
-                                                                            error:nil];
-                        if (newData) patched = newData;
-                    }
-                } @catch (NSException *e) {}
-            }
-            completionHandler(patched, response, error);
-        };
+        ^(NSData *d, NSURLResponse *r, NSError *e) { patchHandler(completionHandler, d, r, e); };
     return %orig(url, newHandler);
 }
 %end
@@ -289,20 +258,27 @@ static BOOL g_seedingDefaults = NO;
 // VipManager re-reads from disk mid-method, it gets 9999.
 %hook ZZCameraController
 - (void)aiComposeMultiPlansButtonTapped {
+    // Force-write 9999 bypassing our write-block so VipManager disk reads see 9999
+    g_seedingDefaults = YES;
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     [d setInteger:9999 forKey:@"VipManager.freeAIComposeCount"];
     [d setInteger:9999 forKey:@"VipManager.freeAIFilterCount"];
     [d setInteger:9999 forKey:@"VipManager.freeUseCount"];
+    [d synchronize];
+    g_seedingDefaults = NO;
     %orig;
 }
 %end
 
 %hook _TtC6Follow18ZZCameraController
 - (void)aiComposeMultiPlansButtonTapped {
+    g_seedingDefaults = YES;
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     [d setInteger:9999 forKey:@"VipManager.freeAIComposeCount"];
     [d setInteger:9999 forKey:@"VipManager.freeAIFilterCount"];
     [d setInteger:9999 forKey:@"VipManager.freeUseCount"];
+    [d synchronize];
+    g_seedingDefaults = NO;
     %orig;
 }
 %end
