@@ -543,4 +543,32 @@ static OSStatus hook_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
 
     // Confirm tweak loaded — write to both locations
     dvLog(@"=== DokaVip tweak loaded === logPath=%@", dvGetLogPath());
+
+    // VipManager singleton patch — runs at 1s + 3s after launch.
+    // Swift caches UserDefaults into ivars on init; KVC lets us overwrite the live ivar.
+    void (^patchVipMgr)(void) = ^{
+        Class cls = NSClassFromString(@"VipManager") ?: NSClassFromString(@"_TtC6Follow10VipManager");
+        if (!cls) { dvLog(@"[VIP] VipManager class not found"); return; }
+        id mgr = nil;
+        // Try common singleton accessor names
+        for (NSString *sel in @[@"shared", @"sharedInstance", @"defaultManager"]) {
+            if ([cls respondsToSelector:NSSelectorFromString(sel)]) {
+                mgr = [cls performSelector:NSSelectorFromString(sel)];
+                if (mgr) break;
+            }
+        }
+        if (!mgr) { dvLog(@"[VIP] VipManager singleton not found"); return; }
+        dvLog(@"[VIP] Patching VipManager singleton: %@", mgr);
+        @try { [mgr setValue:@YES    forKey:@"validatedEntitlementIsVip"]; } @catch(id e){}
+        @try { [mgr setValue:@(9999) forKey:@"freeAIComposeCount"]; }       @catch(id e){}
+        @try { [mgr setValue:@(9999) forKey:@"freeAIFilterCount"]; }        @catch(id e){}
+        @try { [mgr setValue:@(9999) forKey:@"freeUseCount"]; }             @catch(id e){}
+        @try { [mgr setValue:@(1)    forKey:@"debugMembershipMode"]; }      @catch(id e){}
+        dvLog(@"[VIP] VipManager KVC patch applied");
+    };
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), patchVipMgr);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), patchVipMgr);
 }
