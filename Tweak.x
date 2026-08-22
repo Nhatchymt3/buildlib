@@ -267,9 +267,10 @@ static id modifyDict(id obj) {
 }
 
 - (void)setObject:(id)value forKey:(NSString *)key {
-    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) { %orig(@(9999), key); return; }
-    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  { %orig(@(9999), key); return; }
-    if ([key isEqualToString:@"VipManager.freeUseCount"])       { %orig(@(9999), key); return; }
+    NSNumber *n = [NSNumber numberWithInteger:9999];
+    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) { %orig(n, key); return; }
+    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  { %orig(n, key); return; }
+    if ([key isEqualToString:@"VipManager.freeUseCount"])       { %orig(n, key); return; }
     %orig;
 }
 
