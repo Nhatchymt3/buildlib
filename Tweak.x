@@ -160,3 +160,25 @@ static id modifyDict(id obj) {
 - (NSInteger)freeAIFilterCount { return 0; }
 - (NSInteger)freeUseCount { return 0; }
 %end
+
+%hook UIDevice
+- (NSUUID *)identifierForVendor {
+    static NSUUID *randomUUID = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        randomUUID = [NSUUID UUID];
+    });
+    return randomUUID;
+}
+%end
+
+%hook ASIdentifierManager
+- (NSUUID *)advertisingIdentifier {
+    static NSUUID *randomUUID = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        randomUUID = [NSUUID UUID];
+    });
+    return randomUUID;
+}
+%end
