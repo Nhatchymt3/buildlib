@@ -120,6 +120,20 @@ static id modifyDict(id obj) {
     %orig;
 }
 
+- (BOOL)synchronize {
+    return NO;
+}
+
+%end
+
+%hook NSDate
+- (NSTimeInterval)timeIntervalSince1970 {
+    // If it's doing daily limit checks, spoofing time to next day might help, but let's just make it old
+    return 1609459200; // 2021-01-01
+}
++ (NSDate *)date {
+    return [NSDate dateWithTimeIntervalSince1970:1609459200];
+}
 %end
 
 %hook ZZCheckSubscriptionStatusModel
@@ -131,4 +145,18 @@ static id modifyDict(id obj) {
 
 %hook FWStoreKitManager
 - (BOOL)isVIP { return YES; }
+%end
+
+%hook VipManager
+- (BOOL)validatedEntitlementIsVip { return YES; }
+- (NSInteger)freeAIComposeCount { return 0; }
+- (NSInteger)freeAIFilterCount { return 0; }
+- (NSInteger)freeUseCount { return 0; }
+%end
+
+%hook _TtC6Follow10VipManager
+- (BOOL)validatedEntitlementIsVip { return YES; }
+- (NSInteger)freeAIComposeCount { return 0; }
+- (NSInteger)freeAIFilterCount { return 0; }
+- (NSInteger)freeUseCount { return 0; }
 %end
