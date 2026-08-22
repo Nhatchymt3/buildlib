@@ -1,0 +1,37 @@
+name: Build iOS Tweak
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Tweak
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: actions/checkout@v4
+        with:
+          repository: theos/theos
+          ref: master
+          path: theos
+          submodules: recursive
+
+      - name: Setup iOS SDK
+        run: |
+          git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
+
+      - name: Build Dylib
+        run: |
+          export THEOS=$GITHUB_WORKSPACE/theos
+          make package FINALPACKAGE=1
+        
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DokaVip_Dylib
+          path: .theos/obj/**/DokaVip.dylib
