@@ -58,6 +58,9 @@ static id modifyDict(id obj) {
 %hook NSUserDefaults
 
 - (NSInteger)integerForKey:(NSString *)key {
+    if ([key isEqualToString:@"VipManager.debugMembershipMode"]) {
+        return 1;
+    }
     if ([key localizedCaseInsensitiveContainsString:@"count"] || 
         [key localizedCaseInsensitiveContainsString:@"limit"]) {
         return 9999;
@@ -66,6 +69,9 @@ static id modifyDict(id obj) {
 }
 
 - (id)objectForKey:(NSString *)key {
+    if ([key isEqualToString:@"debug.vip.override"]) {
+        return @YES;
+    }
     if ([key localizedCaseInsensitiveContainsString:@"count"] || 
         [key localizedCaseInsensitiveContainsString:@"limit"]) {
         return @(9999);
@@ -77,6 +83,9 @@ static id modifyDict(id obj) {
 }
 
 - (BOOL)boolForKey:(NSString *)key {
+    if ([key isEqualToString:@"debug.vip.override"]) {
+        return YES;
+    }
     if ([key localizedCaseInsensitiveContainsString:@"isvip"]) {
         return YES;
     }
