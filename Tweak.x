@@ -257,11 +257,12 @@ static id modifyDict(id obj) {
     return %orig;
 }
 
-// Redirect counter writes: block any decrement — the getter hook always
-// returns 9999 regardless, so blocking writes is safe.
-// g_seedingDefaults flag allows %ctor to bypass the block when seeding initial values.
+%end
+
+// g_seedingDefaults: set to YES in %ctor so UserDefaults seeding bypasses the write-block
 static BOOL g_seedingDefaults = NO;
 
+%hook NSUserDefaults
 - (void)setInteger:(NSInteger)value forKey:(NSString *)key {
     if (!g_seedingDefaults) {
         if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
@@ -279,7 +280,6 @@ static BOOL g_seedingDefaults = NO;
     }
     %orig;
 }
-
 %end
 
 // ─── 7. ZZCameraController — AI Compose button tap gate bypass ────────────────
