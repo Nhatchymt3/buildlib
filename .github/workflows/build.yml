@@ -23,7 +23,7 @@ jobs:
 
       - name: Setup iOS SDK
         run: |
-          rm -rf $GITHUB_WORKSPACE/theos/sdks/*
+          rm -rf $GITHUB_WORKSPACE/theos/sdks
           git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
 
       - name: Build Dylib
