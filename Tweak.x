@@ -36,3 +36,25 @@
 %hook FWStoreKitManager
 - (BOOL)isVIP { return YES; }
 %end
+
+%hook NSUserDefaults
+
+- (NSInteger)integerForKey:(NSString *)defaultName {
+    if ([defaultName containsString:@"Count"] || 
+        [defaultName containsString:@"count"] || 
+        [defaultName containsString:@"limit"]) {
+        return 9999;
+    }
+    return %orig;
+}
+
+- (void)setInteger:(NSInteger)value forKey:(NSString *)defaultName {
+    if ([defaultName containsString:@"Count"] || 
+        [defaultName containsString:@"count"] || 
+        [defaultName containsString:@"limit"]) {
+        return; // Chặn lưu đếm lượt (decrement) xuống local
+    }
+    %orig;
+}
+
+%end
