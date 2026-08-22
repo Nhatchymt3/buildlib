@@ -111,8 +111,31 @@ static id modifyDict(id obj) {
 %end
 
 // ─── 2. Network response intercept ───────────────────────────────────────────
-// Patches raw NSData before NSJSONSerialization runs, catching the case where
-// the app uses a custom JSON deserialiser that bypasses our NSJSONSerialization hook.
+
+// File logger — writes to /var/mobile/Documents/DokaVipLog.txt (readable in Filza)
+static void dvLog(NSString *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+    va_end(args);
+    NSString *line = [NSString stringWithFormat:@"%@  %@\n",
+                      [NSDateFormatter localizedStringFromDate:[NSDate date]
+                                                     dateStyle:NSDateFormatterNoStyle
+                                                     timeStyle:NSDateFormatterMediumStyle],
+                      msg];
+    NSLog(@"[DokaVip] %@", msg);
+    static NSString *logPath = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ logPath = @"/var/mobile/Documents/DokaVipLog.txt"; });
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:logPath];
+    if (!fh) {
+        [@"" writeToFile:logPath atomically:NO encoding:NSUTF8StringEncoding error:nil];
+        fh = [NSFileHandle fileHandleForWritingAtPath:logPath];
+    }
+    [fh seekToEndOfFile];
+    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh closeFile];
+}
 
 // Shared response patcher — wraps any completion handler to run modifyDict
 // on the raw JSON. Safe: modifyDict is a no-op if quota keys are absent.
@@ -128,27 +151,23 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
                                                      options:NSJSONReadingMutableContainers
                                                        error:nil];
             if (json) {
-                // LOG: print every JSON response so we can see AI compose traffic
                 NSData *prettyData = [NSJSONSerialization dataWithJSONObject:json
                                                                      options:NSJSONWritingPrettyPrinted
                                                                        error:nil];
                 NSString *bodyStr = prettyData ? [[NSString alloc] initWithData:prettyData
                                                                        encoding:NSUTF8StringEncoding]
                                                : @"(serialize failed)";
-                NSLog(@"[DokaVip] URL=%@ STATUS=%ld BODY=%@",
-                      urlStr, (long)httpResp.statusCode, bodyStr);
-
+                dvLog(@"[RESP] %@ HTTP%ld\n%@", urlStr, (long)httpResp.statusCode, bodyStr);
                 id fixed = modifyDict(json);
                 NSData *nd = [NSJSONSerialization dataWithJSONObject:fixed options:0 error:nil];
                 if (nd) patched = nd;
             } else {
-                // Non-JSON response (image, binary) — log URL + size only
-                NSLog(@"[DokaVip] URL=%@ STATUS=%ld NON-JSON size=%lu",
+                dvLog(@"[RESP] %@ HTTP%ld NON-JSON %lu bytes",
                       urlStr, (long)httpResp.statusCode, (unsigned long)data.length);
             }
         } @catch (NSException *e) {}
     } else if (error) {
-        NSLog(@"[DokaVip] URL=%@ ERROR=%@", urlStr, error.localizedDescription);
+        dvLog(@"[ERR] %@ %@", urlStr, error.localizedDescription);
     }
     completionHandler(patched, response, error);
 }
@@ -166,13 +185,12 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
             NSData *pretty = [NSJSONSerialization dataWithJSONObject:reqJson
                                                             options:NSJSONWritingPrettyPrinted error:nil];
             NSString *bodyStr = [[NSString alloc] initWithData:pretty encoding:NSUTF8StringEncoding];
-            NSLog(@"[DokaVip][REQ] %@ %@", request.URL.absoluteString, bodyStr);
+            dvLog(@"[REQ] %@\n%@", request.URL.absoluteString, bodyStr);
         } else {
-            NSLog(@"[DokaVip][REQ] %@ (non-JSON body, %lu bytes)",
-                  request.URL.absoluteString, (unsigned long)reqBody.length);
+            dvLog(@"[REQ] %@ (binary %lu bytes)", request.URL.absoluteString, (unsigned long)reqBody.length);
         }
     } else {
-        NSLog(@"[DokaVip][REQ] %@ (no body)", request.URL.absoluteString);
+        dvLog(@"[REQ] %@ (no body)", request.URL.absoluteString);
     }
 
     void (^newHandler)(NSData *, NSURLResponse *, NSError *) =
