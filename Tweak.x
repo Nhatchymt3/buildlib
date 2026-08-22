@@ -257,20 +257,26 @@ static id modifyDict(id obj) {
     return %orig;
 }
 
-// Redirect counter writes: app writes any value → we redirect to 9999.
-// This keeps VipManager's internal ivar at 9999 after every decrement.
+// Redirect counter writes: block any decrement — the getter hook always
+// returns 9999 regardless, so blocking writes is safe.
+// g_seedingDefaults flag allows %ctor to bypass the block when seeding initial values.
+static BOOL g_seedingDefaults = NO;
+
 - (void)setInteger:(NSInteger)value forKey:(NSString *)key {
-    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) { %orig(9999, key); return; }
-    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  { %orig(9999, key); return; }
-    if ([key isEqualToString:@"VipManager.freeUseCount"])       { %orig(9999, key); return; }
+    if (!g_seedingDefaults) {
+        if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
+        if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  return;
+        if ([key isEqualToString:@"VipManager.freeUseCount"])       return;
+    }
     %orig;
 }
 
 - (void)setObject:(id)value forKey:(NSString *)key {
-    NSNumber *n = [NSNumber numberWithInteger:9999];
-    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) { %orig(n, key); return; }
-    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  { %orig(n, key); return; }
-    if ([key isEqualToString:@"VipManager.freeUseCount"])       { %orig(n, key); return; }
+    if (!g_seedingDefaults) {
+        if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
+        if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  return;
+        if ([key isEqualToString:@"VipManager.freeUseCount"])       return;
+    }
     %orig;
 }
 
@@ -354,7 +360,8 @@ static OSStatus hook_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
     MSHookFunction((void *)SecItemCopyMatching, (void *)hook_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching);
     MSHookFunction((void *)SecItemAdd, (void *)hook_SecItemAdd, (void **)&orig_SecItemAdd);
 
-    // Seed UserDefaults at load time so VipManager reads correct values on first access
+    // Seed UserDefaults at load time — use bypass flag to skip the write-block hook
+    g_seedingDefaults = YES;
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     [d setInteger:9999 forKey:@"VipManager.freeAIComposeCount"];
     [d setInteger:9999 forKey:@"VipManager.freeAIFilterCount"];
@@ -362,4 +369,5 @@ static OSStatus hook_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
     [d setBool:YES forKey:@"VipManager.validatedEntitlementIsVip"];
     [d setInteger:1 forKey:@"VipManager.debugMembershipMode"];
     [d synchronize];
+    g_seedingDefaults = NO;
 }
