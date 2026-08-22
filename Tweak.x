@@ -184,6 +184,38 @@ static id modifyDict(id obj) {
 }
 %end
 
+#include <Security/Security.h>
+#import <substrate.h>
+
+static OSStatus (*orig_SecItemCopyMatching)(CFDictionaryRef query, CFTypeRef *result);
+static OSStatus hook_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
+    NSDictionary *queryDict = (__bridge NSDictionary *)query;
+    if (queryDict && [queryDict[(__bridge id)kSecClass] isEqual:(__bridge id)kSecClassGenericPassword]) {
+        NSString *service = queryDict[(__bridge id)kSecAttrService];
+        if ([service containsString:@"WeChatOpenSDK"] || [service containsString:@"DeviceID"] || [service containsString:@"UUID"]) {
+            return errSecItemNotFound;
+        }
+    }
+    return orig_SecItemCopyMatching(query, result);
+}
+
+static OSStatus (*orig_SecItemAdd)(CFDictionaryRef attributes, CFTypeRef *result);
+static OSStatus hook_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
+    NSDictionary *attrDict = (__bridge NSDictionary *)attributes;
+    if (attrDict && [attrDict[(__bridge id)kSecClass] isEqual:(__bridge id)kSecClassGenericPassword]) {
+        NSString *service = attrDict[(__bridge id)kSecAttrService];
+        if ([service containsString:@"WeChatOpenSDK"] || [service containsString:@"DeviceID"] || [service containsString:@"UUID"]) {
+            return errSecSuccess;
+        }
+    }
+    return orig_SecItemAdd(attributes, result);
+}
+
+%ctor {
+    MSHookFunction((void *)SecItemCopyMatching, (void *)hook_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching);
+    MSHookFunction((void *)SecItemAdd, (void *)hook_SecItemAdd, (void **)&orig_SecItemAdd);
+}
+
 %hook ASIdentifierManager
 - (NSUUID *)advertisingIdentifier {
     static NSUUID *randomUUID = nil;
