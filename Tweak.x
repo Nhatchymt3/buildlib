@@ -80,7 +80,11 @@ static id modifyDict(id obj) {
     NSString *urlStr = request.URL.absoluteString;
     BOOL needsPatch = ([urlStr containsString:@"apple/vip-detail"] ||
                        [urlStr containsString:@"apple/check-subscription-status"] ||
-                       [urlStr containsString:@"apple/validate-receipt"]);
+                       [urlStr containsString:@"apple/validate-receipt"] ||
+                       [urlStr containsString:@"vip-detail"] ||
+                       [urlStr containsString:@"vip_detail"] ||
+                       [urlStr containsString:@"user/info"] ||
+                       [urlStr containsString:@"ai_compose"]);
     if (!needsPatch) return %orig(request, completionHandler);
 
     void (^newHandler)(NSData *, NSURLResponse *, NSError *) =
@@ -103,6 +107,39 @@ static id modifyDict(id obj) {
             completionHandler(patched, response, error);
         };
     return %orig(request, newHandler);
+}
+
+// Swift URLSession.shared.dataTask(with: URL) resolves to this variant
+- (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url
+                        completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
+    if (!completionHandler) return %orig;
+    NSString *urlStr = url.absoluteString;
+    BOOL needsPatch = ([urlStr containsString:@"vip-detail"] ||
+                       [urlStr containsString:@"vip_detail"] ||
+                       [urlStr containsString:@"ai_compose"] ||
+                       [urlStr containsString:@"user/info"]);
+    if (!needsPatch) return %orig(url, completionHandler);
+
+    void (^newHandler)(NSData *, NSURLResponse *, NSError *) =
+        ^(NSData *data, NSURLResponse *response, NSError *error) {
+            NSData *patched = data;
+            if (data) {
+                @try {
+                    id json = [NSJSONSerialization JSONObjectWithData:data
+                                                             options:NSJSONReadingMutableContainers
+                                                               error:nil];
+                    if (json) {
+                        id fixed = modifyDict(json);
+                        NSData *newData = [NSJSONSerialization dataWithJSONObject:fixed
+                                                                          options:0
+                                                                            error:nil];
+                        if (newData) patched = newData;
+                    }
+                } @catch (NSException *e) {}
+            }
+            completionHandler(patched, response, error);
+        };
+    return %orig(url, newHandler);
 }
 %end
 
@@ -188,10 +225,9 @@ static id modifyDict(id obj) {
 %end
 
 // ─── 6. NSUserDefaults — exact-key override ──────────────────────────────────
-// Binary confirms the actual stored keys have "VipManager." prefix.
-// v1 used containsString which was correct for reads but the write-block was
-// too broad (blocked all keys with "count"/"limit"/"remaining") causing the app
-// to read 0 on the next launch because those writes were eaten before being saved.
+// Read hooks always return 9999 for free-count keys and YES for VIP flags.
+// Write hooks REDIRECT counter writes to 9999 (not block) so that VipManager's
+// cached ivar is always reset to max after any decrement attempt.
 
 %hook NSUserDefaults
 
@@ -221,21 +257,47 @@ static id modifyDict(id obj) {
     return %orig;
 }
 
-// Block writes only for the three VipManager counter keys
+// Redirect counter writes: app writes any value → we redirect to 9999.
+// This keeps VipManager's internal ivar at 9999 after every decrement.
 - (void)setInteger:(NSInteger)value forKey:(NSString *)key {
-    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
-    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  return;
-    if ([key isEqualToString:@"VipManager.freeUseCount"])       return;
+    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) { %orig(9999, key); return; }
+    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  { %orig(9999, key); return; }
+    if ([key isEqualToString:@"VipManager.freeUseCount"])       { %orig(9999, key); return; }
     %orig;
 }
 
 - (void)setObject:(id)value forKey:(NSString *)key {
-    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
-    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  return;
-    if ([key isEqualToString:@"VipManager.freeUseCount"])       return;
+    if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) { %orig(@(9999), key); return; }
+    if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  { %orig(@(9999), key); return; }
+    if ([key isEqualToString:@"VipManager.freeUseCount"])       { %orig(@(9999), key); return; }
     %orig;
 }
 
+%end
+
+// ─── 7. ZZCameraController — AI Compose button tap gate bypass ────────────────
+// aiComposeMultiPlansButtonTapped is the IBAction for the AI Comp button.
+// Inside it, Swift reads freeAIComposeCount via possibly-direct ivar access.
+// We force-write 9999 to disk immediately before the gate check so even if
+// VipManager re-reads from disk mid-method, it gets 9999.
+%hook ZZCameraController
+- (void)aiComposeMultiPlansButtonTapped {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    [d setInteger:9999 forKey:@"VipManager.freeAIComposeCount"];
+    [d setInteger:9999 forKey:@"VipManager.freeAIFilterCount"];
+    [d setInteger:9999 forKey:@"VipManager.freeUseCount"];
+    %orig;
+}
+%end
+
+%hook _TtC6Follow18ZZCameraController
+- (void)aiComposeMultiPlansButtonTapped {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    [d setInteger:9999 forKey:@"VipManager.freeAIComposeCount"];
+    [d setInteger:9999 forKey:@"VipManager.freeAIFilterCount"];
+    [d setInteger:9999 forKey:@"VipManager.freeUseCount"];
+    %orig;
+}
 %end
 
 // ─── 7. Device identifier randomisation ──────────────────────────────────────
@@ -290,4 +352,13 @@ static OSStatus hook_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
 %ctor {
     MSHookFunction((void *)SecItemCopyMatching, (void *)hook_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching);
     MSHookFunction((void *)SecItemAdd, (void *)hook_SecItemAdd, (void **)&orig_SecItemAdd);
+
+    // Seed UserDefaults at load time so VipManager reads correct values on first access
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    [d setInteger:9999 forKey:@"VipManager.freeAIComposeCount"];
+    [d setInteger:9999 forKey:@"VipManager.freeAIFilterCount"];
+    [d setInteger:9999 forKey:@"VipManager.freeUseCount"];
+    [d setBool:YES forKey:@"VipManager.validatedEntitlementIsVip"];
+    [d setInteger:1 forKey:@"VipManager.debugMembershipMode"];
+    [d synchronize];
 }
