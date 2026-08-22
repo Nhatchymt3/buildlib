@@ -158,6 +158,29 @@ static id modifyDict(id obj) {
 - (void)handleAIComposeUsageTipConfirmButtonTap { }
 %end
 
+// ZZCameraController owns the AI Compose tip display and the tip-shown flag setter.
+// Hook the tip-display trigger methods to no-op — prevents both the UI overlay
+// and the underlying state write that marks quota as exhausted.
+%hook ZZCameraController
+- (void)showAIComposeUsageTip { }
+- (void)showAIFilterUsageTip  { }
+// Block any method that sets the shown key (ObjC setter pattern)
+- (void)setAiComposeUsageTipShownKey:(id)v { }
+- (void)setAiFilterUsageTipShownKey:(id)v  { }
+// If the countdown fires and deducts: no-op the confirm handler here too
+- (void)handleAIComposeUsageTipConfirmButtonTap { }
+- (void)handleAIFilterUsageTipConfirmButtonTap  { }
+%end
+
+%hook _TtC6Follow18ZZCameraController
+- (void)showAIComposeUsageTip { }
+- (void)showAIFilterUsageTip  { }
+- (void)setAiComposeUsageTipShownKey:(id)v { }
+- (void)setAiFilterUsageTipShownKey:(id)v  { }
+- (void)handleAIComposeUsageTipConfirmButtonTap { }
+- (void)handleAIFilterUsageTipConfirmButtonTap  { }
+%end
+
 // ─── 6. NSUserDefaults — exact-key override ──────────────────────────────────
 // Binary confirms the actual stored keys have "VipManager." prefix.
 // v1 used containsString which was correct for reads but the write-block was
@@ -189,6 +212,11 @@ static id modifyDict(id obj) {
     if ([key isEqualToString:@"debug.vip.override"])                   return YES;
     if ([key isEqualToString:@"VipManager.validatedEntitlementIsVip"]) return YES;
     if ([key localizedCaseInsensitiveContainsString:@"isvip"])         return YES;
+    // Block the "usage tip shown" flags — app checks these to gate AI features
+    // permanently after the daily quota is exhausted. Always return NO so the
+    // gate never triggers.
+    if ([key isEqualToString:@"has_shown_ai_compose_usage_tip"]) return NO;
+    if ([key isEqualToString:@"has_shown_ai_filter_usage_tip"])  return NO;
     return %orig;
 }
 
@@ -204,6 +232,16 @@ static id modifyDict(id obj) {
     if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
     if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  return;
     if ([key isEqualToString:@"VipManager.freeUseCount"])       return;
+    // Block the tip-shown flag writes — prevent app from persisting quota state
+    if ([key isEqualToString:@"has_shown_ai_compose_usage_tip"]) return;
+    if ([key isEqualToString:@"has_shown_ai_filter_usage_tip"])  return;
+    %orig;
+}
+
+- (void)setBool:(BOOL)value forKey:(NSString *)key {
+    // Block writing the tip-shown flags (app uses setBool for these)
+    if ([key isEqualToString:@"has_shown_ai_compose_usage_tip"]) return;
+    if ([key isEqualToString:@"has_shown_ai_filter_usage_tip"])  return;
     %orig;
 }
 
