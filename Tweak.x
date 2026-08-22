@@ -112,7 +112,19 @@ static id modifyDict(id obj) {
 
 // ─── 2. Network response intercept ───────────────────────────────────────────
 
-// File logger — writes to /var/mobile/Documents/DokaVipLog.txt (readable in Filza)
+// File logger — writes to app Documents + /tmp (both readable in Filza)
+static NSString *dvGetLogPath(void) {
+    static NSString *p = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // App container Documents — always writable from inside the process
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *doc = [paths firstObject];
+        p = doc ? [doc stringByAppendingPathComponent:@"DokaVipLog.txt"] : @"/tmp/DokaVipLog.txt";
+    });
+    return p;
+}
+
 static void dvLog(NSString *fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -124,17 +136,21 @@ static void dvLog(NSString *fmt, ...) {
                                                      timeStyle:NSDateFormatterMediumStyle],
                       msg];
     NSLog(@"[DokaVip] %@", msg);
-    static NSString *logPath = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ logPath = @"/var/mobile/Documents/DokaVipLog.txt"; });
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:logPath];
+    NSString *path = dvGetLogPath();
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
     if (!fh) {
-        [@"" writeToFile:logPath atomically:NO encoding:NSUTF8StringEncoding error:nil];
-        fh = [NSFileHandle fileHandleForWritingAtPath:logPath];
+        [@"=== DokaVip Log ===\n" writeToFile:path atomically:NO encoding:NSUTF8StringEncoding error:nil];
+        // Also write to tmp as fallback
+        [@"=== DokaVip Log ===\n" writeToFile:@"/tmp/DokaVipLog.txt" atomically:NO encoding:NSUTF8StringEncoding error:nil];
+        fh = [NSFileHandle fileHandleForWritingAtPath:path];
     }
+    NSData *lineData = [line dataUsingEncoding:NSUTF8StringEncoding];
     [fh seekToEndOfFile];
-    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh writeData:lineData];
     [fh closeFile];
+    // Mirror to /tmp as well
+    NSFileHandle *fh2 = [NSFileHandle fileHandleForWritingAtPath:@"/tmp/DokaVipLog.txt"];
+    if (fh2) { [fh2 seekToEndOfFile]; [fh2 writeData:lineData]; [fh2 closeFile]; }
 }
 
 // Shared response patcher — wraps any completion handler to run modifyDict
@@ -493,4 +509,7 @@ static OSStatus hook_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
     [d setInteger:1 forKey:@"VipManager.debugMembershipMode"];
     [d synchronize];
     g_seedingDefaults = NO;
+
+    // Confirm tweak loaded — write to both locations
+    dvLog(@"=== DokaVip tweak loaded === logPath=%@", dvGetLogPath());
 }
