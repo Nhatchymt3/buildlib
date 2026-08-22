@@ -61,13 +61,10 @@ static id modifyDict(id obj) {
     if ([key isEqualToString:@"VipManager.debugMembershipMode"]) {
         return 1;
     }
-    if ([key localizedCaseInsensitiveContainsString:@"remaining"]) {
+    if ([key localizedCaseInsensitiveContainsString:@"count"] || 
+        [key localizedCaseInsensitiveContainsString:@"limit"] ||
+        [key localizedCaseInsensitiveContainsString:@"remaining"]) {
         return 9999;
-    }
-    if ([key containsString:@"freeAIComposeCount"] || 
-        [key containsString:@"freeAIFilterCount"] || 
-        [key containsString:@"freeUseCount"]) {
-        return 0;
     }
     return %orig;
 }
@@ -76,13 +73,10 @@ static id modifyDict(id obj) {
     if ([key isEqualToString:@"debug.vip.override"]) {
         return @YES;
     }
-    if ([key localizedCaseInsensitiveContainsString:@"remaining"]) {
+    if ([key localizedCaseInsensitiveContainsString:@"count"] || 
+        [key localizedCaseInsensitiveContainsString:@"limit"] ||
+        [key localizedCaseInsensitiveContainsString:@"remaining"]) {
         return @(9999);
-    }
-    if ([key containsString:@"freeAIComposeCount"] || 
-        [key containsString:@"freeAIFilterCount"] || 
-        [key containsString:@"freeUseCount"]) {
-        return @(0);
     }
     if ([key localizedCaseInsensitiveContainsString:@"isvip"]) {
         return @YES;
@@ -101,20 +95,18 @@ static id modifyDict(id obj) {
 }
 
 - (void)setInteger:(NSInteger)value forKey:(NSString *)key {
-    if ([key localizedCaseInsensitiveContainsString:@"remaining"] || 
-        [key containsString:@"freeAIComposeCount"] || 
-        [key containsString:@"freeAIFilterCount"] || 
-        [key containsString:@"freeUseCount"]) {
+    if ([key localizedCaseInsensitiveContainsString:@"count"] || 
+        [key localizedCaseInsensitiveContainsString:@"limit"] ||
+        [key localizedCaseInsensitiveContainsString:@"remaining"]) {
         return; 
     }
     %orig;
 }
 
 - (void)setObject:(id)value forKey:(NSString *)key {
-    if ([key localizedCaseInsensitiveContainsString:@"remaining"] || 
-        [key containsString:@"freeAIComposeCount"] || 
-        [key containsString:@"freeAIFilterCount"] || 
-        [key containsString:@"freeUseCount"]) {
+    if ([key localizedCaseInsensitiveContainsString:@"count"] || 
+        [key localizedCaseInsensitiveContainsString:@"limit"] ||
+        [key localizedCaseInsensitiveContainsString:@"remaining"]) {
         return; 
     }
     %orig;
