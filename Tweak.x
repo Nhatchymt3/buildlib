@@ -22,21 +22,62 @@ static id modifyDict(id obj) {
     if ([obj isKindOfClass:[NSDictionary class]]) {
         NSMutableDictionary *dict = [obj mutableCopy];
 
-        for (NSString *key in @[@"is_vip", @"isVip", @"isVIP"]) {
+        // VIP status fields
+        for (NSString *key in @[@"is_vip", @"isVip", @"isVIP", @"vip"]) {
             if (dict[key]) dict[key] = @YES;
         }
         if (dict[@"vip_type"]) dict[@"vip_type"] = @(1);
+        if (dict[@"membership_level"]) dict[@"membership_level"] = @(1);
 
+        // Quota / remaining count fields
         for (NSString *key in @[
             @"remaining_count",
             @"remaining_compose_count",
             @"ai_compose_remaining_count",
             @"remaining_filter_count",
-            @"ai_filter_remaining_count"
+            @"ai_filter_remaining_count",
+            @"free_compose_count",
+            @"free_filter_count",
+            @"free_use_count",
+            @"daily_remaining",
+            @"quota_remaining",
+            @"used_count",          // patch used→0
+            @"daily_used_count"
         ]) {
-            if (dict[key] != nil) dict[key] = @(9999);
+            if (dict[key] != nil) {
+                // used_count fields should be 0, everything else 9999
+                if ([key containsString:@"used"]) dict[key] = @(0);
+                else dict[key] = @(9999);
+            }
         }
 
+        // Error / status codes that trigger mid-session cancel
+        // Server returns non-zero code to signal quota exhausted → patch to 0 (success)
+        NSNumber *code = dict[@"code"];
+        if (code && [code isKindOfClass:[NSNumber class]]) {
+            NSInteger c = code.integerValue;
+            // Common quota-exhausted codes used by Alibaba Cloud / yindoka backend
+            if (c == 429 || c == 4001 || c == 4002 || c == 4003 ||
+                c == 1001 || c == 1002 || c == 1003 ||
+                c == 10001 || c == 10002 || c == 10003 ||
+                c == 20001 || c == 20002 || c == 40001 ||
+                c == 403 || c == 402 || c == 401) {
+                dict[@"code"] = @(0);
+                // Also patch accompanying message/data to look like success
+                if (!dict[@"data"] || [dict[@"data"] isKindOfClass:[NSNull class]]) {
+                    dict[@"data"] = @{};
+                }
+            }
+        }
+        // Same for error_code, status_code, ret, retcode
+        for (NSString *errKey in @[@"error_code", @"status_code", @"ret", @"retcode", @"errCode"]) {
+            NSNumber *ec = dict[errKey];
+            if (ec && [ec isKindOfClass:[NSNumber class]] && ec.integerValue != 0) {
+                dict[errKey] = @(0);
+            }
+        }
+
+        // Recurse into nested dicts/arrays
         for (NSString *key in [dict.allKeys copy]) {
             id val = dict[key];
             if ([val isKindOfClass:[NSDictionary class]] || [val isKindOfClass:[NSArray class]]) {
@@ -158,11 +199,32 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
 %hook ZZCameraController
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
+
+// finishWithComposedVideoFrame: is called with nil when the server rejects the
+// session mid-flight (quota=0 from network response). Block the nil path only.
+- (void)finishWithComposedVideoFrame:(id)frame {
+    if (!frame) return;   // nil = cancel/error path — suppress
+    %orig;
+}
+
+// Prevent the prefetch request object from being cleared (which signals cancel)
+- (void)setPendingAIComposePlan2PrefetchRequest:(id)req {
+    if (!req) return;  // nil = cancel — block
+    %orig;
+}
 %end
 
 %hook _TtC6Follow18ZZCameraController
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
+- (void)finishWithComposedVideoFrame:(id)frame {
+    if (!frame) return;
+    %orig;
+}
+- (void)setPendingAIComposePlan2PrefetchRequest:(id)req {
+    if (!req) return;
+    %orig;
+}
 %end
 
 // UIAlertController intercept — catches the "Today's free AI composition
