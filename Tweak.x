@@ -157,7 +157,24 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request
                             completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     if (!completionHandler) return %orig;
-    // Patch ALL JSON responses — obfuscated endpoints (/hi8, /km4 etc) also carry quota data
+
+    // Log outgoing request
+    NSData *reqBody = request.HTTPBody;
+    if (reqBody) {
+        id reqJson = [NSJSONSerialization JSONObjectWithData:reqBody options:0 error:nil];
+        if (reqJson) {
+            NSData *pretty = [NSJSONSerialization dataWithJSONObject:reqJson
+                                                            options:NSJSONWritingPrettyPrinted error:nil];
+            NSString *bodyStr = [[NSString alloc] initWithData:pretty encoding:NSUTF8StringEncoding];
+            NSLog(@"[DokaVip][REQ] %@ %@", request.URL.absoluteString, bodyStr);
+        } else {
+            NSLog(@"[DokaVip][REQ] %@ (non-JSON body, %lu bytes)",
+                  request.URL.absoluteString, (unsigned long)reqBody.length);
+        }
+    } else {
+        NSLog(@"[DokaVip][REQ] %@ (no body)", request.URL.absoluteString);
+    }
+
     void (^newHandler)(NSData *, NSURLResponse *, NSError *) =
         ^(NSData *d, NSURLResponse *r, NSError *e) { patchHandler(completionHandler, d, r, e); };
     return %orig(request, newHandler);
