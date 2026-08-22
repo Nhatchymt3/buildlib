@@ -16,6 +16,43 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+// ─── Logger (must come first — used by modifyDict below) ─────────────────────
+
+static NSString *dvGetLogPath(void) {
+    static NSString *p = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *doc = [paths firstObject];
+        p = doc ? [doc stringByAppendingPathComponent:@"DokaVipLog.txt"] : @"/tmp/DokaVipLog.txt";
+    });
+    return p;
+}
+
+static void dvLog(NSString *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+    va_end(args);
+    NSString *line = [NSString stringWithFormat:@"%@  %@\n",
+                      [NSDateFormatter localizedStringFromDate:[NSDate date]
+                                                     dateStyle:NSDateFormatterNoStyle
+                                                     timeStyle:NSDateFormatterMediumStyle],
+                      msg];
+    NSLog(@"[DokaVip] %@", msg);
+    NSString *path = dvGetLogPath();
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!fh) {
+        [@"=== DokaVip Log ===\n" writeToFile:path atomically:NO encoding:NSUTF8StringEncoding error:nil];
+        [@"=== DokaVip Log ===\n" writeToFile:@"/tmp/DokaVipLog.txt" atomically:NO encoding:NSUTF8StringEncoding error:nil];
+        fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    }
+    NSData *lineData = [line dataUsingEncoding:NSUTF8StringEncoding];
+    [fh seekToEndOfFile]; [fh writeData:lineData]; [fh closeFile];
+    NSFileHandle *fh2 = [NSFileHandle fileHandleForWritingAtPath:@"/tmp/DokaVipLog.txt"];
+    if (fh2) { [fh2 seekToEndOfFile]; [fh2 writeData:lineData]; [fh2 closeFile]; }
+}
+
 // ─── JSON patcher (shared by NSJSONSerialization hook + URLSession hook) ──────
 
 static NSDictionary *fakeInAppEntry(void) {
@@ -149,49 +186,6 @@ static id modifyDict(id obj) {
 
 // ─── 2. Network response intercept ───────────────────────────────────────────
 
-// File logger — writes to app Documents + /tmp (both readable in Filza)
-static NSString *dvGetLogPath(void) {
-    static NSString *p = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        // App container Documents — always writable from inside the process
-        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-        NSString *doc = [paths firstObject];
-        p = doc ? [doc stringByAppendingPathComponent:@"DokaVipLog.txt"] : @"/tmp/DokaVipLog.txt";
-    });
-    return p;
-}
-
-static void dvLog(NSString *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
-    va_end(args);
-    NSString *line = [NSString stringWithFormat:@"%@  %@\n",
-                      [NSDateFormatter localizedStringFromDate:[NSDate date]
-                                                     dateStyle:NSDateFormatterNoStyle
-                                                     timeStyle:NSDateFormatterMediumStyle],
-                      msg];
-    NSLog(@"[DokaVip] %@", msg);
-    NSString *path = dvGetLogPath();
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!fh) {
-        [@"=== DokaVip Log ===\n" writeToFile:path atomically:NO encoding:NSUTF8StringEncoding error:nil];
-        // Also write to tmp as fallback
-        [@"=== DokaVip Log ===\n" writeToFile:@"/tmp/DokaVipLog.txt" atomically:NO encoding:NSUTF8StringEncoding error:nil];
-        fh = [NSFileHandle fileHandleForWritingAtPath:path];
-    }
-    NSData *lineData = [line dataUsingEncoding:NSUTF8StringEncoding];
-    [fh seekToEndOfFile];
-    [fh writeData:lineData];
-    [fh closeFile];
-    // Mirror to /tmp as well
-    NSFileHandle *fh2 = [NSFileHandle fileHandleForWritingAtPath:@"/tmp/DokaVipLog.txt"];
-    if (fh2) { [fh2 seekToEndOfFile]; [fh2 writeData:lineData]; [fh2 closeFile]; }
-}
-
-// Shared response patcher — wraps any completion handler to run modifyDict
-// on the raw JSON. Safe: modifyDict is a no-op if quota keys are absent.
 static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NSError *),
                          NSData *data, NSURLResponse *response, NSError *error) {
     NSData *patched = data;
