@@ -61,6 +61,11 @@ static id modifyDict(id obj) {
     if ([key isEqualToString:@"VipManager.debugMembershipMode"]) {
         return 1;
     }
+    if ([key containsString:@"freeAIComposeCount"] || 
+        [key containsString:@"freeAIFilterCount"] || 
+        [key containsString:@"freeUseCount"]) {
+        return 0;
+    }
     if ([key localizedCaseInsensitiveContainsString:@"count"] || 
         [key localizedCaseInsensitiveContainsString:@"limit"] ||
         [key localizedCaseInsensitiveContainsString:@"remaining"]) {
@@ -72,6 +77,11 @@ static id modifyDict(id obj) {
 - (id)objectForKey:(NSString *)key {
     if ([key isEqualToString:@"debug.vip.override"]) {
         return @YES;
+    }
+    if ([key containsString:@"freeAIComposeCount"] || 
+        [key containsString:@"freeAIFilterCount"] || 
+        [key containsString:@"freeUseCount"]) {
+        return @(0);
     }
     if ([key localizedCaseInsensitiveContainsString:@"count"] || 
         [key localizedCaseInsensitiveContainsString:@"limit"] ||
@@ -95,6 +105,11 @@ static id modifyDict(id obj) {
 }
 
 - (void)setInteger:(NSInteger)value forKey:(NSString *)key {
+    if ([key containsString:@"freeAIComposeCount"] || 
+        [key containsString:@"freeAIFilterCount"] || 
+        [key containsString:@"freeUseCount"]) {
+        return;
+    }
     if ([key localizedCaseInsensitiveContainsString:@"count"] || 
         [key localizedCaseInsensitiveContainsString:@"limit"] ||
         [key localizedCaseInsensitiveContainsString:@"remaining"]) {
@@ -104,6 +119,11 @@ static id modifyDict(id obj) {
 }
 
 - (void)setObject:(id)value forKey:(NSString *)key {
+    if ([key containsString:@"freeAIComposeCount"] || 
+        [key containsString:@"freeAIFilterCount"] || 
+        [key containsString:@"freeUseCount"]) {
+        return;
+    }
     if ([key localizedCaseInsensitiveContainsString:@"count"] || 
         [key localizedCaseInsensitiveContainsString:@"limit"] ||
         [key localizedCaseInsensitiveContainsString:@"remaining"]) {
