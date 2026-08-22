@@ -193,39 +193,33 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
 - (NSInteger)debugMembershipMode        { return 1; }
 %end
 
-// ─── 5. Usage-tip & quota-gate hooks ─────────────────────────────────────────
+// ─── 5. Compose mode & quota-gate hooks ───────────────────────────────────────
 
-// ZZCameraController.showAI*UsageTip — tip overlay no-ops
+// Force local compose mode — disable cloud Plan2 dependency so AI Compose
+// runs entirely on-device (face_det + face_align mars models + Apple Vision).
+// isAiComposeMultiPlansEnabled=NO → app skips network Plan2 prefetch,
+// uses local rule-based framing ("Detect the subject offline and frame it with fixed rules").
 %hook ZZCameraController
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
-
-// finishWithComposedVideoFrame: is called with nil when the server rejects the
-// session mid-flight (quota=0 from network response). Block the nil path only.
-- (void)finishWithComposedVideoFrame:(id)frame {
-    if (!frame) return;   // nil = cancel/error path — suppress
-    %orig;
-}
-
-// Prevent the prefetch request object from being cleared (which signals cancel)
-- (void)setPendingAIComposePlan2PrefetchRequest:(id)req {
-    if (!req) return;  // nil = cancel — block
-    %orig;
-}
+- (BOOL)isAiComposeMultiPlansEnabled { return NO; }
+- (BOOL)hasActivatedAIComposePlan2   { return YES; }
+- (BOOL)hasTriggeredAIComposePlan2Prefetch { return YES; }
+- (BOOL)hasCompletedRemoteFetch      { return YES; }
 %end
 
 %hook _TtC6Follow18ZZCameraController
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
-- (void)finishWithComposedVideoFrame:(id)frame {
-    if (!frame) return;
-    %orig;
-}
-- (void)setPendingAIComposePlan2PrefetchRequest:(id)req {
-    if (!req) return;
-    %orig;
-}
+- (BOOL)isAiComposeMultiPlansEnabled { return NO; }
+- (BOOL)hasActivatedAIComposePlan2   { return YES; }
+- (BOOL)hasTriggeredAIComposePlan2Prefetch { return YES; }
+- (BOOL)hasCompletedRemoteFetch      { return YES; }
 %end
+
+// NSUserDefaults — also gate the multi-plans feature flag from remote config
+// so even if ZZCameraController reads it via UserDefaults it gets NO (local mode)
+// and hasActivatedAIComposePlan2 persists as YES across sessions.
 
 // UIAlertController intercept — catches the "Today's free AI composition
 // attempts are used up" and "Today's free AI filter attempts are used up"
@@ -285,6 +279,14 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
     if ([key isEqualToString:@"debug.vip.override"])                   return YES;
     if ([key isEqualToString:@"VipManager.validatedEntitlementIsVip"]) return YES;
     if ([key localizedCaseInsensitiveContainsString:@"isvip"])         return YES;
+    // Force local-only compose mode: disable cloud Plan2 feature flag
+    if ([key isEqualToString:@"ai_compose_multi_plans_enabled"])       return NO;
+    if ([key isEqualToString:@"ai_compose_perf_probe_enabled"])        return NO;
+    // Force Plan2 as already activated so app skips Plan2 prefetch entirely
+    if ([key isEqualToString:@"hasActivatedAIComposePlan2"])           return YES;
+    if ([key isEqualToString:@"hasTriggeredAIComposePlan2Prefetch"])   return YES;
+    if ([key isEqualToString:@"hasCompletedRemoteFetch"])              return YES;
+    if ([key isEqualToString:@"VipManager.hasSyncedIndependentAIFilterCount"]) return YES;
     return %orig;
 }
 
