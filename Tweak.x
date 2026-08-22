@@ -198,15 +198,10 @@ static id modifyDict(id obj) {
     if ([key isEqualToString:@"debug.vip.override"])                   return YES;
     if ([key isEqualToString:@"VipManager.validatedEntitlementIsVip"]) return YES;
     if ([key localizedCaseInsensitiveContainsString:@"isvip"])         return YES;
-    // Block the "usage tip shown" flags — app checks these to gate AI features
-    // permanently after the daily quota is exhausted. Always return NO so the
-    // gate never triggers.
-    if ([key isEqualToString:@"has_shown_ai_compose_usage_tip"]) return NO;
-    if ([key isEqualToString:@"has_shown_ai_filter_usage_tip"])  return NO;
     return %orig;
 }
 
-// Block writes only for the three counter keys — not broadly
+// Block writes only for the three VipManager counter keys
 - (void)setInteger:(NSInteger)value forKey:(NSString *)key {
     if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
     if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  return;
@@ -218,16 +213,6 @@ static id modifyDict(id obj) {
     if ([key isEqualToString:@"VipManager.freeAIComposeCount"]) return;
     if ([key isEqualToString:@"VipManager.freeAIFilterCount"])  return;
     if ([key isEqualToString:@"VipManager.freeUseCount"])       return;
-    // Block the tip-shown flag writes — prevent app from persisting quota state
-    if ([key isEqualToString:@"has_shown_ai_compose_usage_tip"]) return;
-    if ([key isEqualToString:@"has_shown_ai_filter_usage_tip"])  return;
-    %orig;
-}
-
-- (void)setBool:(BOOL)value forKey:(NSString *)key {
-    // Block writing the tip-shown flags (app uses setBool for these)
-    if ([key isEqualToString:@"has_shown_ai_compose_usage_tip"]) return;
-    if ([key isEqualToString:@"has_shown_ai_filter_usage_tip"])  return;
     %orig;
 }
 
