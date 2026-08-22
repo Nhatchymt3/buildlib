@@ -146,39 +146,25 @@ static id modifyDict(id obj) {
 - (NSInteger)debugMembershipMode        { return 1; }
 %end
 
-// ─── 5. Usage-tip confirm handlers ───────────────────────────────────────────
-// These are called when the "No Free AI Attempts Left" overlay is shown and
-// the user taps confirm. Swallowing them prevents the deduction call-chain.
+// ─── 5. Usage-tip & quota-gate hooks ─────────────────────────────────────────
+// "AI Compose Tips (1/3 → 2/3 → 3/3)" uses handleAI*UsageTipConfirmButtonTap
+// to advance steps — we MUST NOT no-op that or Next button dies.
+// Instead we block the flag writes (below, in NSUserDefaults) so the "quota
+// exhausted" state is never persisted to disk.
+//
+// We DO no-op showAI*UsageTip on ZZCameraController to suppress the overlay
+// that appears AFTER quota is exhausted (different code-path from the tutorial).
 
-%hook AIFilterSelectionViewController
-- (void)handleAIFilterUsageTipConfirmButtonTap { }
-%end
-
-%hook AIComposeEffectSettingsViewController
-- (void)handleAIComposeUsageTipConfirmButtonTap { }
-%end
-
-// ZZCameraController owns the AI Compose tip display and the tip-shown flag setter.
-// Hook the tip-display trigger methods to no-op — prevents both the UI overlay
-// and the underlying state write that marks quota as exhausted.
 %hook ZZCameraController
+// Suppress the post-exhaustion overlay (triggered when count hits 0 on a
+// subsequent launch). The tutorial overlay comes from a different call-site.
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
-// Block any method that sets the shown key (ObjC setter pattern)
-- (void)setAiComposeUsageTipShownKey:(id)v { }
-- (void)setAiFilterUsageTipShownKey:(id)v  { }
-// If the countdown fires and deducts: no-op the confirm handler here too
-- (void)handleAIComposeUsageTipConfirmButtonTap { }
-- (void)handleAIFilterUsageTipConfirmButtonTap  { }
 %end
 
 %hook _TtC6Follow18ZZCameraController
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
-- (void)setAiComposeUsageTipShownKey:(id)v { }
-- (void)setAiFilterUsageTipShownKey:(id)v  { }
-- (void)handleAIComposeUsageTipConfirmButtonTap { }
-- (void)handleAIFilterUsageTipConfirmButtonTap  { }
 %end
 
 // ─── 6. NSUserDefaults — exact-key override ──────────────────────────────────
