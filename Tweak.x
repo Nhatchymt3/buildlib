@@ -254,6 +254,63 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
 }
 %end
 
+// ─── 2b. WPKAFURLSessionManager delegate — catches Alamofire/WPK traffic ──────
+// The app uses WPK (Alibaba fork of AFNetworking) which stores delegate callbacks
+// as blocks and accumulates data per-task. We mirror the data accumulation here.
+
+static NSMapTable *g_taskDataMap = nil;  // NSURLSessionTask → NSMutableData
+
+%hook WPKAFURLSessionManager
+
+// Intercept all outgoing requests (delegate-based, no completion handler)
+- (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request {
+    dvLog(@"[WPK-REQ] %@ %@", request.HTTPMethod ?: @"GET", request.URL.absoluteString);
+    return %orig;
+}
+
+// Accumulate response data per task
+- (void)URLSession:(NSURLSession *)session
+          dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveData:(NSData *)data {
+    if (!g_taskDataMap) {
+        g_taskDataMap = [NSMapTable weakToStrongObjectsMapTable];
+    }
+    NSMutableData *acc = [g_taskDataMap objectForKey:dataTask];
+    if (!acc) { acc = [NSMutableData data]; [g_taskDataMap setObject:acc forKey:dataTask]; }
+    [acc appendData:data];
+    %orig;
+}
+
+// On task completion: patch accumulated data if JSON
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    NSURLResponse *resp = task.response;
+    NSHTTPURLResponse *http = (NSHTTPURLResponse *)resp;
+    NSString *url = http.URL.absoluteString ?: @"(nil)";
+    NSMutableData *acc = g_taskDataMap ? [g_taskDataMap objectForKey:task] : nil;
+
+    if (acc && acc.length > 0 && !error) {
+        id json = [NSJSONSerialization JSONObjectWithData:acc
+                                                 options:NSJSONReadingMutableContainers
+                                                   error:nil];
+        if (json) {
+            NSData *pretty = [NSJSONSerialization dataWithJSONObject:json
+                                                            options:NSJSONWritingPrettyPrinted error:nil];
+            NSString *body = [[NSString alloc] initWithData:pretty encoding:NSUTF8StringEncoding] ?: @"(fmt fail)";
+            dvLog(@"[WPK-RESP] %@ HTTP%ld\n%@", url, (long)http.statusCode, body);
+        } else {
+            dvLog(@"[WPK-RESP] %@ HTTP%ld NON-JSON %lu bytes",
+                  url, (long)http.statusCode, (unsigned long)acc.length);
+        }
+        [g_taskDataMap removeObjectForKey:task];
+    } else if (error) {
+        dvLog(@"[WPK-ERR] %@ %@", url, error.localizedDescription);
+    }
+    %orig;
+}
+%end
+
 // ─── 3. ObjC model classes ───────────────────────────────────────────────────
 
 %hook ZZCheckSubscriptionStatusModel
