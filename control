@@ -1,0 +1,9 @@
+Package: com.nhatchymte.dokavip
+Name: DokaVip
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: VIP Bypass for Doka
+Maintainer: Nhatchymte
+Author: Nhatchymte
+Section: Tweaks
