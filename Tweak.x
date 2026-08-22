@@ -18,9 +18,51 @@
 
 // ─── JSON patcher (shared by NSJSONSerialization hook + URLSession hook) ──────
 
+static NSDictionary *fakeInAppEntry(void) {
+    // Mimics a valid Apple receipt in_app entry for the lifetime product
+    // Dates use Apple's receipt format: "YYYY-MM-DD HH:MM:SS Etc/GMT"
+    return @{
+        @"quantity":                    @"1",
+        @"product_id":                  @"com.ydgn.dokacamera.lifetime",
+        @"transaction_id":              @"1000000000000001",
+        @"original_transaction_id":     @"1000000000000001",
+        @"purchase_date":               @"2026-01-01 00:00:00 Etc/GMT",
+        @"purchase_date_ms":            @"1735689600000",
+        @"purchase_date_pst":           @"2025-12-31 16:00:00 America/Los_Angeles",
+        @"original_purchase_date":      @"2026-01-01 00:00:00 Etc/GMT",
+        @"original_purchase_date_ms":   @"1735689600000",
+        @"original_purchase_date_pst":  @"2025-12-31 16:00:00 America/Los_Angeles",
+        @"is_trial_period":             @"false",
+        @"is_in_intro_offer_period":    @"false",
+    };
+}
+
 static id modifyDict(id obj) {
     if ([obj isKindOfClass:[NSDictionary class]]) {
         NSMutableDictionary *dict = [obj mutableCopy];
+
+        // ── Apple receipt response: inject fake lifetime subscription ─────────
+        // Triggered when app calls buy.itunes.apple.com/verifyReceipt
+        id inApp = dict[@"in_app"];
+        if (inApp && [inApp isKindOfClass:[NSArray class]]) {
+            NSArray *arr = (NSArray *)inApp;
+            if (arr.count == 0) {
+                // Free account — inject lifetime purchase
+                dict[@"in_app"] = @[fakeInAppEntry()];
+                dict[@"latest_receipt_info"] = @[fakeInAppEntry()];
+                dvLog(@"[PATCH] Injected fake lifetime subscription into in_app");
+            }
+        }
+        // Also patch receipt sub-dict
+        id receiptObj = dict[@"receipt"];
+        if (receiptObj && [receiptObj isKindOfClass:[NSDictionary class]]) {
+            NSMutableDictionary *r = [receiptObj mutableCopy];
+            id ri = r[@"in_app"];
+            if (ri && [ri isKindOfClass:[NSArray class]] && [(NSArray*)ri count] == 0) {
+                r[@"in_app"] = @[fakeInAppEntry()];
+                dict[@"receipt"] = r;
+            }
+        }
 
         // VIP status fields
         for (NSString *key in @[@"is_vip", @"isVip", @"isVIP", @"vip"]) {
@@ -41,35 +83,30 @@ static id modifyDict(id obj) {
             @"free_use_count",
             @"daily_remaining",
             @"quota_remaining",
-            @"used_count",          // patch used→0
+            @"used_count",
             @"daily_used_count"
         ]) {
             if (dict[key] != nil) {
-                // used_count fields should be 0, everything else 9999
                 if ([key containsString:@"used"]) dict[key] = @(0);
                 else dict[key] = @(9999);
             }
         }
 
-        // Error / status codes that trigger mid-session cancel
-        // Server returns non-zero code to signal quota exhausted → patch to 0 (success)
+        // Error / status codes → patch to 0 (success)
         NSNumber *code = dict[@"code"];
         if (code && [code isKindOfClass:[NSNumber class]]) {
             NSInteger c = code.integerValue;
-            // Common quota-exhausted codes used by Alibaba Cloud / yindoka backend
             if (c == 429 || c == 4001 || c == 4002 || c == 4003 ||
                 c == 1001 || c == 1002 || c == 1003 ||
                 c == 10001 || c == 10002 || c == 10003 ||
                 c == 20001 || c == 20002 || c == 40001 ||
                 c == 403 || c == 402 || c == 401) {
                 dict[@"code"] = @(0);
-                // Also patch accompanying message/data to look like success
                 if (!dict[@"data"] || [dict[@"data"] isKindOfClass:[NSNull class]]) {
                     dict[@"data"] = @{};
                 }
             }
         }
-        // Same for error_code, status_code, ret, retcode
         for (NSString *errKey in @[@"error_code", @"status_code", @"ret", @"retcode", @"errCode"]) {
             NSNumber *ec = dict[errKey];
             if (ec && [ec isKindOfClass:[NSNumber class]] && ec.integerValue != 0) {
