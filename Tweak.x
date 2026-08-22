@@ -147,17 +147,9 @@ static id modifyDict(id obj) {
 %end
 
 // ─── 5. Usage-tip & quota-gate hooks ─────────────────────────────────────────
-// "AI Compose Tips (1/3 → 2/3 → 3/3)" uses handleAI*UsageTipConfirmButtonTap
-// to advance steps — we MUST NOT no-op that or Next button dies.
-// Instead we block the flag writes (below, in NSUserDefaults) so the "quota
-// exhausted" state is never persisted to disk.
-//
-// We DO no-op showAI*UsageTip on ZZCameraController to suppress the overlay
-// that appears AFTER quota is exhausted (different code-path from the tutorial).
 
+// ZZCameraController.showAI*UsageTip — tip overlay no-ops
 %hook ZZCameraController
-// Suppress the post-exhaustion overlay (triggered when count hits 0 on a
-// subsequent launch). The tutorial overlay comes from a different call-site.
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
 %end
@@ -165,6 +157,34 @@ static id modifyDict(id obj) {
 %hook _TtC6Follow18ZZCameraController
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
+%end
+
+// UIAlertController intercept — catches the "Today's free AI composition
+// attempts are used up" and "Today's free AI filter attempts are used up"
+// dialogs that appear when the count-gate fires internally.
+// This is the fallback for cases where Swift's direct ivar access bypasses
+// our ObjC VipManager getter hooks.
+%hook UIViewController
+- (void)presentViewController:(UIViewController *)vc
+                      animated:(BOOL)animated
+                    completion:(void (^)(void))completion {
+    if ([vc isKindOfClass:[UIAlertController class]]) {
+        UIAlertController *alert = (UIAlertController *)vc;
+        NSString *msg = alert.message ?: @"";
+        NSString *title = alert.title ?: @"";
+        NSString *combined = [NSString stringWithFormat:@"%@ %@", title, msg];
+        // Strings confirmed in binary
+        if ([combined containsString:@"free AI composition attempts"] ||
+            [combined containsString:@"free AI filter attempts"] ||
+            [combined containsString:@"free AI uses are exhausted"] ||
+            [combined containsString:@"attempts are used up"]) {
+            // Silently dismiss without presenting — call completion so caller doesn't hang
+            if (completion) completion();
+            return;
+        }
+    }
+    %orig;
+}
 %end
 
 // ─── 6. NSUserDefaults — exact-key override ──────────────────────────────────
