@@ -119,17 +119,36 @@ static id modifyDict(id obj) {
 static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NSError *),
                          NSData *data, NSURLResponse *response, NSError *error) {
     NSData *patched = data;
+    NSHTTPURLResponse *httpResp = (NSHTTPURLResponse *)response;
+    NSString *urlStr = httpResp.URL.absoluteString ?: @"(nil)";
+
     if (data) {
         @try {
             id json = [NSJSONSerialization JSONObjectWithData:data
                                                      options:NSJSONReadingMutableContainers
                                                        error:nil];
             if (json) {
+                // LOG: print every JSON response so we can see AI compose traffic
+                NSData *prettyData = [NSJSONSerialization dataWithJSONObject:json
+                                                                     options:NSJSONWritingPrettyPrinted
+                                                                       error:nil];
+                NSString *bodyStr = prettyData ? [[NSString alloc] initWithData:prettyData
+                                                                       encoding:NSUTF8StringEncoding]
+                                               : @"(serialize failed)";
+                NSLog(@"[DokaVip] URL=%@ STATUS=%ld BODY=%@",
+                      urlStr, (long)httpResp.statusCode, bodyStr);
+
                 id fixed = modifyDict(json);
                 NSData *nd = [NSJSONSerialization dataWithJSONObject:fixed options:0 error:nil];
                 if (nd) patched = nd;
+            } else {
+                // Non-JSON response (image, binary) — log URL + size only
+                NSLog(@"[DokaVip] URL=%@ STATUS=%ld NON-JSON size=%lu",
+                      urlStr, (long)httpResp.statusCode, (unsigned long)data.length);
             }
         } @catch (NSException *e) {}
+    } else if (error) {
+        NSLog(@"[DokaVip] URL=%@ ERROR=%@", urlStr, error.localizedDescription);
     }
     completionHandler(patched, response, error);
 }
