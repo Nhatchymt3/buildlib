@@ -238,10 +238,19 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
 %hook ZZCameraController
 - (void)showAIComposeUsageTip { }
 - (void)showAIFilterUsageTip  { }
+// Disable cloud Plan2 — force local FWLocalCompositionAnalyzer path
 - (BOOL)isAiComposeMultiPlansEnabled { return NO; }
 - (BOOL)hasActivatedAIComposePlan2   { return YES; }
 - (BOOL)hasTriggeredAIComposePlan2Prefetch { return YES; }
 - (BOOL)hasCompletedRemoteFetch      { return YES; }
+// Keep localCompositionIntent alive — don't let app clear it
+- (void)setPendingLocalCompositionIntent:(id)intent {
+    if (intent) %orig;  // only set non-nil; don't clear
+}
+- (void)setLocalAIComposeTechnicalRetryCount:(NSInteger)count {
+    // Reset retry count to 0 so engine doesn't give up after N retries
+    %orig(0);
+}
 %end
 
 %hook _TtC6Follow18ZZCameraController
@@ -251,6 +260,26 @@ static void patchHandler(void (^completionHandler)(NSData *, NSURLResponse *, NS
 - (BOOL)hasActivatedAIComposePlan2   { return YES; }
 - (BOOL)hasTriggeredAIComposePlan2Prefetch { return YES; }
 - (BOOL)hasCompletedRemoteFetch      { return YES; }
+- (void)setPendingLocalCompositionIntent:(id)intent {
+    if (intent) %orig;
+}
+- (void)setLocalAIComposeTechnicalRetryCount:(NSInteger)count {
+    %orig(0);
+}
+%end
+
+// FWLocalCompositionAnalyzer — the on-device composition engine.
+// Hook its quota/error check so it always proceeds with analysis.
+%hook FWLocalCompositionAnalyzer
+- (BOOL)canAnalyze { return YES; }
+- (BOOL)isAvailable { return YES; }
+- (NSInteger)remainingCount { return 9999; }
+%end
+
+%hook _TtC6Follow26FWLocalCompositionAnalyzer
+- (BOOL)canAnalyze { return YES; }
+- (BOOL)isAvailable { return YES; }
+- (NSInteger)remainingCount { return 9999; }
 %end
 
 // NSUserDefaults — also gate the multi-plans feature flag from remote config
