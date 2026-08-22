@@ -3,13 +3,10 @@
 static id modifyDict(id obj) {
     if ([obj isKindOfClass:[NSDictionary class]]) {
         NSMutableDictionary *dict = [obj mutableCopy];
-        BOOL changed = NO;
-        
         NSArray *keysToBoolTrue = @[@"is_vip", @"isVip", @"isVIP"];
         for (NSString *key in keysToBoolTrue) {
             if (dict[key]) {
                 dict[key] = @(YES);
-                changed = YES;
             }
         }
         
@@ -17,20 +14,17 @@ static id modifyDict(id obj) {
         for (NSString *key in keysTo9999) {
             if (dict[key]) {
                 dict[key] = @(9999);
-                changed = YES;
             }
         }
 
         if (dict[@"vip_type"]) {
             dict[@"vip_type"] = @(1);
-            changed = YES;
         }
 
         for (NSString *key in dict.allKeys) {
             id val = dict[key];
             if ([val isKindOfClass:[NSDictionary class]] || [val isKindOfClass:[NSArray class]]) {
                 dict[key] = modifyDict(val);
-                changed = YES;
             }
         }
         return dict;
@@ -116,26 +110,4 @@ static id modifyDict(id obj) {
 
 %hook FWStoreKitManager
 - (BOOL)isVIP { return YES; }
-%end
-
-%hook NSUserDefaults
-
-- (NSInteger)integerForKey:(NSString *)defaultName {
-    if ([defaultName containsString:@"Count"] || 
-        [defaultName containsString:@"count"] || 
-        [defaultName containsString:@"limit"]) {
-        return 9999;
-    }
-    return %orig;
-}
-
-- (void)setInteger:(NSInteger)value forKey:(NSString *)defaultName {
-    if ([defaultName containsString:@"Count"] || 
-        [defaultName containsString:@"count"] || 
-        [defaultName containsString:@"limit"]) {
-        return; // Chặn lưu đếm lượt (decrement) xuống local
-    }
-    %orig;
-}
-
 %end
